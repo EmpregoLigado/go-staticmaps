@@ -18,6 +18,9 @@ import (
 	"github.com/golang/geo/s2"
 )
 
+// NewTileFetcherFunc signature of the function that instantiates a new tile fetcher
+type NewTileFetcherFunc func(*TileProvider, TileCache) TileFetcher
+
 // Context holds all information about the map image that is to be rendered
 type Context struct {
 	width  int
@@ -42,6 +45,7 @@ type Context struct {
 
 	userAgent    string
 	tileProvider *TileProvider
+	tileFetcher  TileFetcher
 	cache        TileCache
 
 	overrideAttribution *string
@@ -59,7 +63,13 @@ func NewContext() *Context {
 	t.userAgent = ""
 	t.tileProvider = NewTileProviderOpenStreetMaps()
 	t.cache = NewTileCacheFromUserCache(t.tileProvider.Name, 0777)
+	t.tileFetcher = NewFileTileFetcher(t.tileProvider, t.cache)
 	return t
+}
+
+// SetTileFetcher sets the Tile ftecher instantior func
+func (m *Context) SetTileFetcher(tf TileFetcher) {
+	m.tileFetcher = tf
 }
 
 // SetTileProvider sets the TileProvider to be used
@@ -479,9 +489,8 @@ func (m *Context) RenderWithBounds() (image.Image, s2.Rect, error) {
 }
 
 func (m *Context) renderLayer(gc *gg.Context, zoom int, trans *transformer, tileSize int, provider *TileProvider) error {
-	t := NewTileFetcher(provider, m.cache)
 	if m.userAgent != "" {
-		t.SetUserAgent(m.userAgent)
+		m.tileFetcher.SetUserAgent(m.userAgent)
 	}
 
 	tiles := (1 << uint(zoom))
@@ -497,7 +506,7 @@ func (m *Context) renderLayer(gc *gg.Context, zoom int, trans *transformer, tile
 			if y < 0 || y >= tiles {
 				log.Printf("Skipping out of bounds tile %d/%d", x, y)
 			} else {
-				if tileImg, err := t.Fetch(zoom, x, y); err == nil {
+				if tileImg, err := m.tileFetcher.Fetch(zoom, x, y); err == nil {
 					gc.DrawImage(tileImg, xx*tileSize, yy*tileSize)
 				} else {
 					log.Printf("Error downloading tile file: %s", err)
